@@ -1,0 +1,14 @@
+#version 330 core
+
+// Input
+in vec3 fragmentColor;
+
+// Output
+out vec3 color;
+
+// Uniforms
+uniform vec3 uColor;
+
+void main(){
+  color = fragmentColor;
+}

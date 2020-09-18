@@ -1,0 +1,203 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <vector>
+
+#include <glew.h>
+#include <glfw3.h>
+
+#include <glm.hpp>
+#include <gtc/matrix_transform.hpp>
+#include <gtx/transform.hpp>
+
+#include "renderer.h"
+#include "vertex_buffer.h"
+#include "index_buffer.h"
+
+#include "program_options.h"
+#include "language_layer.h"
+#include "shader.h"
+#include "asset_loading.h"
+#include "input.h"
+
+GLFWwindow* window;
+
+
+int main(void)
+{
+    
+    if (!glfwInit())
+    {
+        fprintf(stderr, "Failed to initialize GLFW\n");
+        return -1;
+    }
+    
+    glfwWindowHint(GLFW_SAMPLES, 4); // 4x antialiasing
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3); // OpenGL 3.3
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // Make MacOS
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); // No old OpenGL
+    
+    // Open a window and create its OpenGL Context
+    
+    window = glfwCreateWindow(640, 480, "OpenGL Pratice", NULL, NULL);
+    if (window == NULL)
+    {
+        fprintf(stderr, "Failed to open GLFW window.");
+        glfwTerminate();
+        return -1;
+    }
+    
+    glfwMakeContextCurrent(window);
+    glewExperimental = true;
+    if (glewInit() != GLEW_OK)
+    {
+        fprintf(stderr, "Failed to initialize GLEW\n");
+        return -1;
+    }
+    
+    
+    // Ensure we can capture the escape key being pressed 
+    glfwSetInputMode(window, GLFW_STICKY_KEYS, GLFW_TRUE);
+    
+    
+    // VAO
+    GLuint VertexArrayID;
+    glGenVertexArrays(1, &VertexArrayID);
+    glBindVertexArray(VertexArrayID);
+    
+    
+    // Cube Buffer Set Up
+    Model cube = {};
+    bool res = LoadOBJ ("../resources/cube.obj", cube);
+    VertexBuffer cubeVertexBuffer(&cube.vertices[0], cube.vertices.size() * sizeof(glm::vec3));
+    glEnableVertexAttribArray(0); 
+    glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, 0, 0); // attribute 0, size, type, normalized?, stride, array buffer offset 
+    
+    
+    // TODO(Bryson): Make ColorBuffer Class
+    // Color Buffer
+    GLuint colorBuffer;
+    glGenBuffers(1, &colorBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, colorBuffer);
+    glBufferData(GL_ARRAY_BUFFER, cube.vertices.size() * sizeof(glm::vec3), &cube.vertices[0], GL_STATIC_DRAW);
+    
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer (1, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    
+    
+    // TODO(Bryson): Make UVBuffer Class
+    // UV Buffer
+    GLuint UVBuffer;
+    glGenBuffers(1, &UVBuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, UVBuffer);
+    glBufferData(GL_ARRAY_BUFFER, cube.uvs.size() * sizeof(glm::vec2), &cube.uvs[0], GL_STATIC_DRAW);
+    
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer (2, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    
+    
+    // Create and compile GLSL program from the shaders
+    GLuint programID = LoadShaders("../src/shaders/BasicTextureShader.vertexshader", "../src/shaders/BasicTextureShader.fragmentshader");
+    
+    ///
+    // Matrices
+    // Perspective Projection Matrix 45deg FOV, 4:3 ratio, display range 0.1 units -> 100 units
+    //glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float) WINDOW_WIDTH / (float) WINDOW_HEIGHT, 0.1f, 100.0f);
+    
+    // Ortho Projection Matrix
+    //glm::mat4 projection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.0f, 100.0f); // In world coords
+    
+    // Camera Matrix
+    
+    /*glm::mat4 view = glm::lookAt (
+        glm::vec3(4,3,10), // Camera is at postion (4,3,3) in world space
+        glm::vec3(0,0,0), // Looks a origin
+        glm::vec3(0,1,0)); // Up direction
+    */
+    
+    // Model Matrix (identity matrix, model will be at origin)
+    
+    ///
+    
+    // Get Uniform Handles
+    GLuint matrixID      = glGetUniformLocation(programID, "MVP"); // Get handle for MVP uniform
+    GLuint colorID       = glGetUniformLocation(programID, "uColor");
+    GLuint textureID     = glGetUniformLocation(programID, "myTextureSampler2D");
+    
+    
+    // Texture
+    GLuint Texture = LoadBMP("../resources/uvtemplate.bmp");
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, Texture);
+    glUniform1i(textureID, 0);
+    
+    
+    // Change Color
+    glm::vec3 color(1.0f, 0.0f, 1.0f);
+    glUniform3fv(colorID, 1, &color[0]);
+    
+    /////
+    
+    
+    
+    // Enable Depth Buffer
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS); // Accept fragment if it is closer to the camera than the former one
+    glEnable(GL_CULL_FACE);
+    
+    glBindVertexArray(0);
+    glUseProgram(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    
+    
+    while (!glfwWindowShouldClose(window))
+    {
+        ComputeMatricesFromInputs();
+        glm::mat4 projection = GetProjectionMatrix();
+        glm::mat4 view = GetViewMatrix();
+        glm::mat4 cubeModel = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
+        glm::mat4 cubeMVP = projection * view * cubeModel;
+        
+        // Clear Screen
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        
+        
+        // Set Clear Color
+        glClearColor(1.0f, 1.0f, 1.0f, 0.0f);
+        
+        
+        // TODO(Bryson): Draw things
+        
+        // Draw Cube
+        glUseProgram(programID);
+        glBindVertexArray(VertexArrayID);
+        glUniformMatrix4fv(matrixID, 1, GL_FALSE, &cubeMVP[0][0]); 
+        
+        glDrawArrays(GL_TRIANGLES, 0, 3 * 12); 
+        
+        
+        // Close window if escape pressed
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        {
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+        }
+        
+        // Swap buffers
+        glfwSwapBuffers (window);
+        glfwPollEvents();
+    }
+    
+    glDisableVertexAttribArray(0);
+    glDisableVertexAttribArray(1);
+    glDisableVertexAttribArray(2);
+    glDeleteBuffers(1, &UVBuffer);
+	glDeleteProgram(programID);
+	glDeleteTextures(1, &Texture);
+	glDeleteVertexArrays(1, &VertexArrayID);
+    
+	// Close OpenGL window and terminate GLFW
+	glfwTerminate();
+    
+	return 0;
+}
